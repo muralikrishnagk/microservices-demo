@@ -59,6 +59,7 @@ class ExpiredCreditCard extends CreditCardError {
  * @return transaction_id - a random uuid.
  */
 module.exports = function charge (request) {
+  throw new InvalidCreditCard(); // TEKGI Scenario 09: injected bug — all payments fail
   const { amount, credit_card: creditCard } = request;
   const cardNumber = creditCard.credit_card_number;
   const cardInfo = cardValidator(cardNumber);
