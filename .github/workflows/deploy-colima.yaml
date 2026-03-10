@@ -1,0 +1,79 @@
+# TEKGI Scenario 09: Deploy paymentservice to local Colima K8s via self-hosted runner.
+#
+# Triggers:
+#   - pull_request to main touching src/paymentservice/** (when workflow is on default branch)
+#   - workflow_dispatch (used by TEKGI scenario script for reliable triggering)
+#
+# Runner requirement: local macOS runner with label 'colima-local'.
+#   Setup: ./scripts/setup_gh_runner.sh (in tekgi-causal-ai repo)
+#   Start: cd ~/actions-runner-colima && ./run.sh
+
+name: Deploy paymentservice to Colima
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+    branches: [main]
+    paths:
+      - "src/paymentservice/**"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or SHA to deploy (defaults to workflow ref)"
+        required: false
+
+concurrency:
+  group: deploy-colima
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy paymentservice to Colima K8s
+    runs-on: [self-hosted, colima-local]
+
+    env:
+      # Ensure Homebrew and standard paths are available to the runner shell
+      PATH: /opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build paymentservice Docker image
+        run: |
+          echo "Building paymentservice:${{ github.sha }}"
+          docker build \
+            -t paymentservice:${{ github.sha }} \
+            src/paymentservice/
+
+      - name: Load image into Colima containerd
+        run: |
+          echo "Loading image into Colima containerd (k8s.io namespace)..."
+          docker save paymentservice:${{ github.sha }} | \
+            colima ssh -- sudo ctr --namespace k8s.io images import -
+          echo "Image loaded: paymentservice:${{ github.sha }}"
+
+      - name: Deploy to Colima K8s (imagePullPolicy=Never for local image)
+        run: |
+          kubectl set image deployment/paymentservice \
+            server=paymentservice:${{ github.sha }}
+
+          # Ensure K8s never tries to pull this local-only image from a registry
+          kubectl patch deployment paymentservice \
+            -p '{"spec":{"template":{"spec":{"containers":[{"name":"server","imagePullPolicy":"Never"}]}}}}'
+
+          echo "Waiting for rollout..."
+          kubectl rollout status deployment/paymentservice --timeout=120s
+
+      - name: Comment deployment status on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.sha.slice(0, 7);
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 Deployed \`paymentservice:${sha}\` to local Colima K8s via TEKGI runner`
+            });
