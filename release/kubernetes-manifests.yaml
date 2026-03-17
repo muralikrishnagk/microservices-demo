@@ -54,6 +54,14 @@ spec:
         - name: grpc
           containerPort: 7000
         env:
+        - name: ENABLE_TRACING
+          value: "1"
+        - name: COLLECTOR_SERVICE_ADDR
+          value: "otelcollector:4317"
+        - name: OTEL_SERVICE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.labels['app']
         - name: PORT
           value: "7000"
         - name: DISABLE_PROFILER
@@ -67,10 +75,10 @@ spec:
         resources:
           requests:
             cpu: 100m
-            memory: 64Mi
+            memory: 256Mi
           limits:
             cpu: 200m
-            memory: 128Mi
+            memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -83,9 +91,9 @@ spec:
   selector:
     app: currencyservice
   ports:
-  - name: grpc
-    port: 7000
-    targetPort: 7000
+    - name: grpc
+      port: 7000
+      targetPort: 7000
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -119,36 +127,45 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
       initContainers:
-      - command:
-        - /bin/sh
-        - -exc
-        - |
-          MAX_RETRIES=12
-          RETRY_INTERVAL=10
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Attempt $i: Pinging frontend: ${FRONTEND_ADDR}..."
-            STATUSCODE=$(wget --server-response http://${FRONTEND_ADDR} 2>&1 | awk '/^  HTTP/{print $2}')
-            if [ $STATUSCODE -eq 200 ]; then
-                echo "Frontend is reachable."
-                exit 0
-            fi
-            echo "Error: Could not reach frontend - Status code: ${STATUSCODE}"
-            sleep $RETRY_INTERVAL
-          done
-          echo "Failed to reach frontend after $MAX_RETRIES attempts."
-          exit 1
-        name: frontend-check
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-          privileged: false
-          readOnlyRootFilesystem: true
-        image: busybox:latest
-        env:
-        - name: FRONTEND_ADDR
-          value: "frontend:80"
+        - command:
+            - /bin/sh
+            - -exc
+            - |
+              MAX_RETRIES=12
+              RETRY_INTERVAL=10
+              for i in $(seq 1 $MAX_RETRIES); do
+                echo "Attempt $i: Pinging frontend: ${FRONTEND_ADDR}..."
+                STATUSCODE=$(wget --server-response http://${FRONTEND_ADDR} 2>&1 | awk '/^  HTTP/{print $2}')
+                if [ $STATUSCODE -ge 200 ]; then
+                    echo "Frontend is reachable (Status: $STATUSCODE)."
+                    exit 0
+                fi
+                echo "Error: Could not reach frontend - Status code: ${STATUSCODE}"
+                sleep $RETRY_INTERVAL
+              done
+              echo "Failed to reach frontend after $MAX_RETRIES attempts."
+              exit 1
+          name: frontend-check
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: busybox:latest
+          env:
+            - name: ENABLE_TRACING
+              value: "1"
+            - name: COLLECTOR_SERVICE_ADDR
+              value: "otelcollector:4317"
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app']
+
+            - name: FRONTEND_ADDR
+              value: "frontend:80"
       containers:
       - name: main
         securityContext:
@@ -160,6 +177,11 @@ spec:
           readOnlyRootFilesystem: true
         image: us-central1-docker.pkg.dev/google-samples/microservices-demo/loadgenerator:v0.10.5
         env:
+        - name: ENABLE_TRACING
+          value: "1"
+        - name: COLLECTOR_SERVICE_ADDR
+          value: "otelcollector:4317"
+        - name: OTEL_SERVICE_NAME
         - name: FRONTEND_ADDR
           value: "frontend:80"
         - name: USERS
@@ -214,7 +236,7 @@ spec:
         ports:
         - containerPort: 3550
         env:
-        - name: PORT
+            - name: ENABLE_TRACING
           value: "3550"
         - name: DISABLE_PROFILER
           value: "1"
@@ -243,9 +265,9 @@ spec:
   selector:
     app: productcatalogservice
   ports:
-  - name: grpc
-    port: 3550
-    targetPort: 3550
+    - name: grpc
+      port: 3550
+      targetPort: 3550
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -284,7 +306,7 @@ spec:
             readOnlyRootFilesystem: true
           image: us-central1-docker.pkg.dev/google-samples/microservices-demo/checkoutservice:v0.10.5
           ports:
-          - containerPort: 5050
+            - containerPort: 5050
           readinessProbe:
             grpc:
               port: 5050
@@ -292,27 +314,36 @@ spec:
             grpc:
               port: 5050
           env:
-          - name: PORT
-            value: "5050"
-          - name: PRODUCT_CATALOG_SERVICE_ADDR
-            value: "productcatalogservice:3550"
-          - name: SHIPPING_SERVICE_ADDR
-            value: "shippingservice:50051"
-          - name: PAYMENT_SERVICE_ADDR
-            value: "paymentservice:50051"
-          - name: EMAIL_SERVICE_ADDR
-            value: "emailservice:5000"
-          - name: CURRENCY_SERVICE_ADDR
-            value: "currencyservice:7000"
-          - name: CART_SERVICE_ADDR
-            value: "cartservice:7070"
+            - name: ENABLE_TRACING
+              value: "1"
+            - name: COLLECTOR_SERVICE_ADDR
+              value: "otelcollector:4317"
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app']
+
+            - name: PORT
+              value: "5050"
+            - name: PRODUCT_CATALOG_SERVICE_ADDR
+              value: "productcatalogservice:3550"
+            - name: SHIPPING_SERVICE_ADDR
+              value: "shippingservice:50051"
+            - name: PAYMENT_SERVICE_ADDR
+              value: "paymentservice:50051"
+            - name: EMAIL_SERVICE_ADDR
+              value: "emailservice:5000"
+            - name: CURRENCY_SERVICE_ADDR
+              value: "currencyservice:7000"
+            - name: CART_SERVICE_ADDR
+              value: "cartservice:7070"
           resources:
             requests:
               cpu: 100m
-              memory: 64Mi
+              memory: 256Mi
             limits:
               cpu: 200m
-              memory: 128Mi
+              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -325,9 +356,9 @@ spec:
   selector:
     app: checkoutservice
   ports:
-  - name: grpc
-    port: 5050
-    targetPort: 5050
+    - name: grpc
+      port: 5050
+      targetPort: 5050
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -368,7 +399,7 @@ spec:
         ports:
         - containerPort: 50051
         env:
-        - name: PORT
+            - name: ENABLE_TRACING
           value: "50051"
         - name: DISABLE_PROFILER
           value: "1"
@@ -398,9 +429,9 @@ spec:
   selector:
     app: shippingservice
   ports:
-  - name: grpc
-    port: 50051
-    targetPort: 50051
+    - name: grpc
+      port: 50051
+      targetPort: 50051
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -442,7 +473,7 @@ spec:
         ports:
         - containerPort: 7070
         env:
-        - name: REDIS_ADDR
+            - name: ENABLE_TRACING
           value: "redis-cart:6379"
         resources:
           requests:
@@ -472,9 +503,9 @@ spec:
   selector:
     app: cartservice
   ports:
-  - name: grpc
-    port: 7070
-    targetPort: 7070
+    - name: grpc
+      port: 7070
+      targetPort: 7070
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -502,38 +533,38 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
       containers:
-      - name: redis
-        securityContext:
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-              - ALL
-          privileged: false
-          readOnlyRootFilesystem: true
-        image: redis:alpine
-        ports:
-        - containerPort: 6379
-        readinessProbe:
-          periodSeconds: 5
-          tcpSocket:
-            port: 6379
-        livenessProbe:
-          periodSeconds: 5
-          tcpSocket:
-            port: 6379
-        volumeMounts:
-        - mountPath: /data
-          name: redis-data
-        resources:
-          limits:
-            memory: 256Mi
-            cpu: 125m
-          requests:
-            cpu: 70m
-            memory: 200Mi
+        - name: redis
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+          image: redis:alpine
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            periodSeconds: 5
+            tcpSocket:
+              port: 6379
+          livenessProbe:
+            periodSeconds: 5
+            tcpSocket:
+              port: 6379
+          volumeMounts:
+            - mountPath: /data
+              name: redis-data
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 125m
+            requests:
+              cpu: 70m
+              memory: 200Mi
       volumes:
-      - name: redis-data
-        emptyDir: {}
+        - name: redis-data
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -546,9 +577,9 @@ spec:
   selector:
     app: redis-cart
   ports:
-  - name: tcp-redis
-    port: 6379
-    targetPort: 6379
+    - name: tcp-redis
+      port: 6379
+      targetPort: 6379
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -585,7 +616,7 @@ spec:
         ports:
         - containerPort: 8080
         env:
-        - name: PORT
+            - name: ENABLE_TRACING
           value: "8080"
         - name: DISABLE_PROFILER
           value: "1"
@@ -616,9 +647,9 @@ spec:
   selector:
     app: emailservice
   ports:
-  - name: grpc
-    port: 5000
-    targetPort: 8080
+    - name: grpc
+      port: 5000
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -660,7 +691,7 @@ spec:
         ports:
         - containerPort: 50051
         env:
-        - name: PORT
+            - name: ENABLE_TRACING
           value: "50051"
         - name: DISABLE_PROFILER
           value: "1"
@@ -689,9 +720,9 @@ spec:
   selector:
     app: paymentservice
   ports:
-  - name: grpc
-    port: 50051
-    targetPort: 50051
+    - name: grpc
+      port: 50051
+      targetPort: 50051
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -732,48 +763,57 @@ spec:
             readOnlyRootFilesystem: true
           image: us-central1-docker.pkg.dev/google-samples/microservices-demo/frontend:v0.10.5
           ports:
-          - containerPort: 8080
+            - containerPort: 8080
           readinessProbe:
             initialDelaySeconds: 10
             httpGet:
               path: "/_healthz"
               port: 8080
               httpHeaders:
-              - name: "Cookie"
-                value: "shop_session-id=x-readiness-probe"
+                - name: "Cookie"
+                  value: "shop_session-id=x-readiness-probe"
           livenessProbe:
             initialDelaySeconds: 10
             httpGet:
               path: "/_healthz"
               port: 8080
               httpHeaders:
-              - name: "Cookie"
-                value: "shop_session-id=x-liveness-probe"
+                - name: "Cookie"
+                  value: "shop_session-id=x-liveness-probe"
           env:
-          - name: PORT
-            value: "8080"
-          - name: PRODUCT_CATALOG_SERVICE_ADDR
-            value: "productcatalogservice:3550"
-          - name: CURRENCY_SERVICE_ADDR
-            value: "currencyservice:7000"
-          - name: CART_SERVICE_ADDR
-            value: "cartservice:7070"
-          - name: RECOMMENDATION_SERVICE_ADDR
-            value: "recommendationservice:8080"
-          - name: SHIPPING_SERVICE_ADDR
-            value: "shippingservice:50051"
-          - name: CHECKOUT_SERVICE_ADDR
-            value: "checkoutservice:5050"
-          - name: AD_SERVICE_ADDR
-            value: "adservice:9555"
-          - name: SHOPPING_ASSISTANT_SERVICE_ADDR
-            value: "shoppingassistantservice:80"
-          # # ENV_PLATFORM: One of: local, gcp, aws, azure, onprem, alibaba
-          # # When not set, defaults to "local" unless running in GKE, otherwies auto-sets to gcp
-          # - name: ENV_PLATFORM
-          #   value: "aws"
-          - name: ENABLE_PROFILER
-            value: "0"
+            - name: ENABLE_TRACING
+              value: "1"
+            - name: COLLECTOR_SERVICE_ADDR
+              value: "otelcollector:4317"
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app']
+
+            - name: PORT
+              value: "8080"
+            - name: PRODUCT_CATALOG_SERVICE_ADDR
+              value: "productcatalogservice:3550"
+            - name: CURRENCY_SERVICE_ADDR
+              value: "currencyservice:7000"
+            - name: CART_SERVICE_ADDR
+              value: "cartservice:7070"
+            - name: RECOMMENDATION_SERVICE_ADDR
+              value: "recommendationservice:8080"
+            - name: SHIPPING_SERVICE_ADDR
+              value: "shippingservice:50051"
+            - name: CHECKOUT_SERVICE_ADDR
+              value: "checkoutservice:5050"
+            - name: AD_SERVICE_ADDR
+              value: "adservice:9555"
+            - name: SHOPPING_ASSISTANT_SERVICE_ADDR
+              value: "shoppingassistantservice:80"
+            # # ENV_PLATFORM: One of: local, gcp, aws, azure, onprem, alibaba
+            # # When not set, defaults to "local" unless running in GKE, otherwies auto-sets to gcp
+            # - name: ENV_PLATFORM
+            #   value: "aws"
+            - name: ENABLE_PROFILER
+              value: "0"
           # - name: CYMBAL_BRANDING
           #   value: "true"
           # - name: ENABLE_ASSISTANT
@@ -786,10 +826,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 64Mi
+              memory: 256Mi
             limits:
               cpu: 200m
-              memory: 128Mi
+              memory: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -802,9 +842,9 @@ spec:
   selector:
     app: frontend
   ports:
-  - name: http
-    port: 80
-    targetPort: 8080
+    - name: http
+      port: 80
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: Service
@@ -817,9 +857,9 @@ spec:
   selector:
     app: frontend
   ports:
-  - name: http
-    port: 80
-    targetPort: 8080
+    - name: http
+      port: 80
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -869,7 +909,7 @@ spec:
           grpc:
             port: 8080
         env:
-        - name: PORT
+            - name: ENABLE_TRACING
           value: "8080"
         - name: PRODUCT_CATALOG_SERVICE_ADDR
           value: "productcatalogservice:3550"
@@ -894,9 +934,9 @@ spec:
   selector:
     app: recommendationservice
   ports:
-  - name: grpc
-    port: 8080
-    targetPort: 8080
+    - name: grpc
+      port: 8080
+      targetPort: 8080
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -938,7 +978,7 @@ spec:
         ports:
         - containerPort: 9555
         env:
-        - name: PORT
+            - name: ENABLE_TRACING
           value: "9555"
         resources:
           requests:
@@ -969,9 +1009,9 @@ spec:
   selector:
     app: adservice
   ports:
-  - name: grpc
-    port: 9555
-    targetPort: 9555
+    - name: grpc
+      port: 9555
+      targetPort: 9555
 ---
 apiVersion: v1
 kind: ServiceAccount
